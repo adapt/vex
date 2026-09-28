@@ -1,6 +1,6 @@
 //! One-directory catalogs and previews, prepared on the shared picker workers.
 
-use super::{Entry, Preview, catalog, ignore};
+use super::{Entry, Preview, catalog};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -89,26 +89,7 @@ fn listing(path: &Path, cancellation: &Cancellation) -> io::Result<Listing> {
     let canonical = fs::canonicalize(path)?;
     let path = canonical.as_path();
     let directory = fs::read_dir(path)?;
-    let mut ancestors = Vec::new();
-    for ancestor in path.ancestors().take(64) {
-        if cancellation.is_cancelled() {
-            return Err(io::Error::other("cancelled"));
-        }
-        ancestors.push(ancestor);
-        if ancestor.join(".git").exists() {
-            break;
-        }
-    }
     let mut notice = String::new();
-    let mut rules = None;
-    for ancestor in ancestors.into_iter().rev() {
-        if cancellation.is_cancelled() {
-            return Err(io::Error::other("cancelled"));
-        }
-        rules = Some(ignore::Rules::load(ancestor, rules, true, &mut notice));
-    }
-    let rules = rules.unwrap();
-    let mut scratch = ignore::Scratch::default();
     let mut entries = Vec::new();
     let mut bytes = 0;
     for (scanned, entry) in directory.enumerate() {
@@ -127,23 +108,19 @@ fn listing(path: &Path, cancellation: &Cancellation) -> io::Result<Listing> {
             }
         };
         let name = entry.file_name().to_string_lossy().into_owned();
-        let kind = match entry.file_type() {
-            Ok(kind) => kind,
+        let directory = match entry.file_type() {
+            Ok(kind) => kind.is_dir() || (kind.is_symlink() && entry.path().is_dir()),
             Err(error) => {
                 notice = error.to_string();
-                continue;
+                false
             }
         };
-        if !kind.is_file() && !kind.is_dir() {
-            continue;
-        }
+        // Browsing shows every entry, including ignored paths, broken links,
+        // and special files. Resolve directory links for navigation only.
         let target = Target {
             path: entry.path(),
-            directory: kind.is_dir(),
+            directory,
         };
-        if rules.check(&target.path, target.directory, &mut scratch, cancellation) != Some(false) {
-            continue;
-        }
         // Render control characters literally rather than as extra preview rows.
         let mut label = String::with_capacity(name.len() + usize::from(target.directory));
         for ch in name.chars() {
@@ -224,10 +201,11 @@ mod tests {
     }
 
     #[test]
-    fn lists_children_including_dotfiles_with_directories_first_and_ignore_rules() {
+    fn lists_all_children_including_ignored_paths_and_git_metadata_with_directories_first() {
         let root = tempfile::tempdir().unwrap();
-        fs::create_dir(root.path().join(".git")).unwrap();
-        fs::write(root.path().join(".gitignore"), "*.log\nignored/\n!.git\n").unwrap();
+        fs::create_dir_all(root.path().join(".git/info")).unwrap();
+        fs::write(root.path().join(".git/info/exclude"), "alpha.rs\n").unwrap();
+        fs::write(root.path().join(".gitignore"), "*.log\nignored/\n").unwrap();
         let path = root.path().join("src");
         fs::create_dir(&path).unwrap();
         for name in ["zebra", "ignored", ".hidden"] {
@@ -242,11 +220,9 @@ mod tests {
         ] {
             fs::write(path.join(name), "contents").unwrap();
         }
-        fs::write(path.join(".ignore"), "!keep.log\n").unwrap();
+        fs::write(path.join(".ignore"), "keep.log\nzebra/\n").unwrap();
         fs::write(path.join("zebra/nested.rs"), "nested").unwrap();
         fs::write(path.join("zebra/.git"), "gitdir: elsewhere\n").unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&path, path.join("cycle")).unwrap();
         let mut worker = Worker::default();
         let result = worker.run(job(&path, "")).unwrap();
         assert_eq!(
@@ -258,15 +234,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 ".hidden/",
+                "ignored/",
                 "zebra/",
                 ".hidden.rs",
                 ".ignore",
                 "alpha.rs",
+                "debug.log",
                 "keep.log",
                 "界 file.rs"
             ]
         );
-        assert_eq!(result.ranked.total, 7);
+        assert_eq!(result.ranked.total, 9);
         assert!(result.ranked.items[0].entry.value.directory);
         let result = worker.run(job(&path, "界 f")).unwrap();
         assert_eq!(result.ranked.items.len(), 1);
@@ -277,7 +255,7 @@ mod tests {
         assert!(!result.ranked.items[0].matched.is_empty());
         assert_eq!(
             preview(&path, &Cancellation::default()).unwrap().text,
-            ".hidden/\nzebra/\n.hidden.rs\n.ignore\nalpha.rs\nkeep.log\n界 file.rs\n"
+            ".hidden/\nignored/\nzebra/\n.hidden.rs\n.ignore\nalpha.rs\ndebug.log\nkeep.log\n界 file.rs\n"
         );
         let result = worker.run(job(root.path(), "")).unwrap();
         assert_eq!(
@@ -287,17 +265,56 @@ mod tests {
                 .iter()
                 .map(|item| item.entry.label.as_str())
                 .collect::<Vec<_>>(),
-            ["src/", ".gitignore"]
+            [".git/", "src/", ".gitignore"]
         );
         assert_eq!(
             preview(root.path(), &Cancellation::default()).unwrap().text,
-            "src/\n.gitignore\n"
+            ".git/\nsrc/\n.gitignore\n"
         );
         assert_eq!(
             preview(&path.join("zebra"), &Cancellation::default())
                 .unwrap()
                 .text,
-            "nested.rs\n"
+            ".git\nnested.rs\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lists_symlinks_including_broken_links_and_special_files() {
+        use std::os::unix::{fs::symlink, net::UnixListener};
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path();
+        fs::create_dir(path.join("directory")).unwrap();
+        fs::write(path.join("file"), "contents").unwrap();
+        symlink("directory", path.join("directory-link")).unwrap();
+        symlink("file", path.join("file-link")).unwrap();
+        symlink("missing", path.join("broken-link")).unwrap();
+        symlink(".", path.join("cycle")).unwrap();
+        let _socket = UnixListener::bind(path.join("socket")).unwrap();
+
+        let result = Worker::default().run(job(path, "")).unwrap();
+        assert_eq!(
+            result
+                .ranked
+                .items
+                .iter()
+                .map(|item| (item.entry.label.as_str(), item.entry.value.directory))
+                .collect::<Vec<_>>(),
+            [
+                ("cycle/", true),
+                ("directory-link/", true),
+                ("directory/", true),
+                ("broken-link", false),
+                ("file", false),
+                ("file-link", false),
+                ("socket", false),
+            ]
+        );
+        assert_eq!(
+            preview(path, &Cancellation::default()).unwrap().text,
+            "cycle/\ndirectory-link/\ndirectory/\nbroken-link\nfile\nfile-link\nsocket\n"
         );
     }
 

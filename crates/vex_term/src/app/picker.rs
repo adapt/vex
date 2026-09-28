@@ -690,9 +690,7 @@ impl App {
         // A path may disappear or become a directory after discovery. Do not
         // turn an outdated picker entry into an unrelated empty new buffer.
         if !std::fs::metadata(&path)?.is_file() {
-            return Err(io::Error::other(
-                "Selected path is no longer a regular file",
-            ));
+            return Err(io::Error::other("Selected path is not a regular file"));
         }
         self.open_window_from_picker(&path)
     }

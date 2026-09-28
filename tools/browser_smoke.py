@@ -17,6 +17,8 @@ def main():
         (root / ".git").mkdir()
         (root / "src").mkdir()
         (root / "empty directory").mkdir()
+        (root / ".gitignore").write_text("src/\n*.log\n")
+        (root / "ignored.log").write_text("ignored contents\n")
         origin = root / "origin.rs"
         target = root / "src/界 target.rs"
         origin.write_text("fn original() {}\n")
@@ -27,6 +29,8 @@ def main():
             terminal.send(b" e")
             terminal.expect_screen_idle("Browse")
             terminal.expect_screen_idle("Preview · origin.rs")
+            terminal.expect_screen_idle(".git/")
+            terminal.expect_screen_idle("ignored.log")
             terminal.send(b"src")
             terminal.expect_screen_idle("Preview · src/")
             terminal.expect_screen_idle("界 target.rs")

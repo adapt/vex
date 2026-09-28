@@ -123,10 +123,11 @@ cancellation work. Returning to a visited directory restores its query, caret,
 selected entry, and scroll position; up to 64 directory checkpoints are retained.
 Space-' reopens the browser at its last directory with that state intact.
 
-Like the file picker, listings and directory previews show dotfiles and
-dot-directories by default, except `.git` files and directories.
-The same ignore-file rules as file discovery still apply; symlinks and special
-files are excluded. Directory reads,
+Listings and directory previews show every entry, including dotfiles, `.git`,
+ignored paths, symlinks, and special files. Ignore files do not filter the
+browser. Symlinks to directories can be entered, and symlinks to regular files
+can be previewed and opened. Broken links and special files remain visible;
+attempting to preview or open them reports an error. Directory reads,
 path resolution, filtering, and previews run on the existing picker workers.
 Query edits reuse the current listing; navigating away and back or reopening
 the browser refreshes it. Errors remain visible in the picker without changing
@@ -293,8 +294,8 @@ Consequently tracked files
 that match ignore patterns are also hidden. Ignore files must be UTF-8 and at
 most 64 KiB each; read errors appear in the picker footer.
 
-The file picker, directory browser, and workspace text search include dotfiles
-and files inside dot-directories, subject to the ignore rules above. Entries
+The file picker and workspace text search include dotfiles and files inside
+dot-directories, subject to the ignore rules above. Entries
 named `.git` are always excluded, including worktree `.git` files, and `.git`
 directories are never scanned. Other names such as `.github` and `.gitignore`
 remain visible. Symlinks are excluded; symlink directories are never followed.

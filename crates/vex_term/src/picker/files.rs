@@ -467,7 +467,7 @@ fn snapshot_preview(
 }
 
 fn preview(path: &Path, cancellation: &Cancellation) -> io::Result<Preview> {
-    let metadata = fs::symlink_metadata(path)?;
+    let metadata = fs::metadata(path)?;
     if metadata.is_dir() {
         return super::browser::preview(path, cancellation);
     }

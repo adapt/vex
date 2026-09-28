@@ -429,4 +429,55 @@ mod tests {
         assert!(!app.picker.active.as_ref().unwrap().view.notice.is_empty());
         assert_eq!(app.editor.document().text(), "fn original() {}\n");
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_targets_can_be_previewed_navigated_and_opened() {
+        use std::os::unix::fs::symlink;
+
+        let (root, mut app, mut worker) = fixture();
+        symlink("src", root.path().join("directory-link")).unwrap();
+        symlink("src/界 target.rs", root.path().join("file-link.rs")).unwrap();
+        app.open_browser(Some(root.path())).unwrap();
+        press(&mut app, "directory-link");
+        finish(&mut app, &mut worker);
+        assert_eq!(selected(&app), "directory-link/");
+        assert_eq!(preview(&mut app), "界 target.rs\n");
+        key(&mut app, KeyCode::Enter);
+        finish(&mut app, &mut worker);
+        assert_eq!(
+            directory(&app),
+            root.path().join("src").canonicalize().unwrap()
+        );
+        assert_eq!(selected(&app), "界 target.rs");
+
+        app.open_browser(Some(root.path())).unwrap();
+        press(&mut app, "file-link");
+        finish(&mut app, &mut worker);
+        assert_eq!(selected(&app), "file-link.rs");
+        assert_eq!(preview(&mut app), "fn target() {}");
+        key(&mut app, KeyCode::Enter);
+        assert!(app.picker.active.is_none());
+        assert_eq!(app.editor.document().text(), "fn target() {}\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn broken_links_and_special_files_stay_visible_and_report_open_and_preview_errors() {
+        use std::os::unix::{fs::symlink, net::UnixListener};
+
+        let (root, mut app, mut worker) = fixture();
+        symlink("missing", root.path().join("broken-link")).unwrap();
+        let _socket = UnixListener::bind(root.path().join("socket")).unwrap();
+        for name in ["broken-link", "socket"] {
+            app.open_browser(Some(root.path())).unwrap();
+            press(&mut app, name);
+            finish(&mut app, &mut worker);
+            assert_eq!(selected(&app), name);
+            assert!(preview(&mut app).starts_with("Preview unavailable:"));
+            key(&mut app, KeyCode::Enter);
+            assert!(!app.picker.active.as_ref().unwrap().view.notice.is_empty());
+            assert_eq!(app.editor.document().text(), "fn original() {}\n");
+        }
+    }
 }
