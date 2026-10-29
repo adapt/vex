@@ -86,8 +86,9 @@ supported by a capture. UI styles are defined alongside them in `Style`.
 `LineNumber` and `ActiveLineNumber` are independent of message styles.
 
 The primary normal-mode cursor reverses the token's colors and retains its text
-attributes; the insert caret leaves those colors intact. Selections retain their
-grey background and default foreground. `MatchingBracket` decorates the partner
+attributes; the insert caret leaves those colors intact. Selections use a grey
+background and the terminal's default background color as their foreground.
+`MatchingBracket` decorates the partner
 with yellow, bold, underlined text. `SelectedMatchingBracket` and
 `MatchingBracketCursor` retain the selection or secondary-cursor background.
 None of these matching styles change the syntax of the primary cursor's bracket.

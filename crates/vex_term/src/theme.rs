@@ -74,7 +74,7 @@ impl Style {
     pub(crate) fn reversed(self) -> bool {
         matches!(
             self,
-            Self::PrimaryCursor(_) | Self::StatusLine | Self::InactiveStatus
+            Self::Selection | Self::PrimaryCursor(_) | Self::StatusLine | Self::InactiveStatus
         )
     }
 
@@ -121,7 +121,9 @@ impl Style {
             Self::StatusBorder | Self::InactiveStatus => (DarkGrey, Reset),
             Self::Message | Self::PopupTitle => (DarkCyan, Reset),
             Self::Error => (Red, Reset),
-            Self::Selection => (Reset, Grey),
+            // Reverse grey over the default background so selected glyphs use
+            // the terminal background color while their background stays grey.
+            Self::Selection => (Grey, Reset),
             Self::MatchingBracket(_) => (Yellow, Reset),
             Self::SelectedMatchingBracket => (Yellow, Grey),
             Self::MatchingBracketCursor => (Yellow, DarkCyan),

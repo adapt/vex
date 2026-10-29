@@ -19,7 +19,7 @@ impl DocumentId {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         Self(
             NEXT_ID
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .expect("document identity counter exhausted"),
         )
     }
